@@ -281,11 +281,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateWifiStatus() {
         ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        Network network = cm.getActiveNetwork();
+        // Use getAllNetworks instead of getActiveNetwork: when VPN is up,
+        // active network is the VPN tunnel and WiFi would be misreported as disconnected.
+        // This matches WifiMonitorService's detection logic.
         boolean wifiConnected = false;
-        if (network != null) {
+        for (Network network : cm.getAllNetworks()) {
             NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-            wifiConnected = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                wifiConnected = true;
+                break;
+            }
         }
         wifiStatusText.setText(wifiConnected
                 ? "WiFi: 已连接 | VPN: 应关闭"

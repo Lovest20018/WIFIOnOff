@@ -101,13 +101,18 @@ public class WifiMonitorService extends Service {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Intent restartIntent = new Intent(this, WifiMonitorService.class);
-        PendingIntent pendingIntent = PendingIntent.getService(
-                this, 0, restartIntent,
-                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
-        android.app.AlarmManager alarm = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        alarm.set(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                android.os.SystemClock.elapsedRealtime() + 3000, pendingIntent);
+        try {
+            Intent restartIntent = new Intent(this, WifiMonitorService.class);
+            PendingIntent pendingIntent = PendingIntent.getService(
+                    this, 0, restartIntent,
+                    PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+            android.app.AlarmManager alarm = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            alarm.set(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + 3000, pendingIntent);
+        } catch (Exception e) {
+            // Android 12+: scheduling/restart may fail under background restrictions
+            Log.e(TAG, "onTaskRemoved restart scheduling failed: " + e.getMessage());
+        }
         super.onTaskRemoved(rootIntent);
     }
 
@@ -292,7 +297,9 @@ public class WifiMonitorService extends Service {
         if (ACTION_STOP.equals(action)) {
             cmd = "am force-stop " + SURFBOARD_PACKAGE;
         } else {
-            cmd = "am start -a android.intent.action.VIEW -d surfboard:///start";
+            // Restrict to Surfboard's package so other apps registering the
+            // surfboard:// scheme cannot intercept the start intent.
+            cmd = "am start -a android.intent.action.VIEW -d surfboard:///start -p " + SURFBOARD_PACKAGE;
         }
         return executeShizukuCommand(cmd);
     }

@@ -1,6 +1,6 @@
 # VPN OnOff
 
-自动根据 WiFi 连接状态切换 Clash Meta VPN 的 Android 应用。
+自动根据 WiFi 连接状态切换 VPN 的 Android 应用。
 
 - WiFi 断开 → 自动开启 VPN
 - WiFi 连接 → 自动关闭 VPN
@@ -9,12 +9,20 @@
 
 ## 前置条件
 
-**本应用需要配合以下两个应用使用：**
+**1. 安装并配置好以下任一 VPN 客户端**（至少一个，APP 内可切换）：
 
-1. **[Clash Meta for Android](https://github.com/MetaCubeX/ClashMetaForAndroid) — 需提前安装并完成订阅配置，确保手动启动 VPN 可正常使用**
-2. **[Shizuku](https://github.com/RikkaApps/Shizuku) — 用于在锁屏等受限场景下控制 VPN 切换。需提前安装并启动 Shizuku 服务**
+| 客户端 | 项目地址 |
+|--------|----------|
+| Clash Meta for Android (CMFA) | https://github.com/MetaCubeX/ClashMetaForAndroid |
+| Bettbox | https://github.com/appshubcc/Bettbox |
+| FlClash | https://github.com/chen08209/FlClash |
+| Surfboard | https://github.com/getsurfboard/surfboard |
 
-> **缺少以上任一应用，VPN OnOff 将无法正常工作。**
+> 所选客户端必须已完成订阅配置，确保手动启动 VPN 可正常使用。
+
+**2. 安装并启动 [Shizuku](https://github.com/RikkaApps/Shizuku)** — 用于在锁屏等受限场景下控制 VPN 切换。
+
+> **缺少 Shizuku 或上述任一客户端，VPN OnOff 将无法正常工作。**
 
 ## 权限设置
 
@@ -28,14 +36,16 @@
 
 ## 使用方法
 
-1. 确保 Clash Meta 已配置好并能正常使用
+1. 确保所选 VPN 客户端已配置好并能正常使用
 2. 确保 Shizuku 已启动且正在运行
-3. 打开 VPN OnOff，确认所有权限状态为绿色
-4. 点击「开始监听」
-5. 完成！APP 会在后台自动根据 WiFi 状态切换 VPN
+3. 打开 VPN OnOff，从下拉框中选择要使用的 VPN 客户端
+4. 确认所有权限状态为绿色
+5. 点击「开始监听」
+6. 完成！APP 会在后台自动根据 WiFi 状态切换 VPN
 
 ## 注意事项
 
-- 首次通过本 APP 启动 Clash Meta VPN 时，系统会弹出 VPN 连接确认对话框，点击允许即可，后续不会再弹出
+- 首次通过本 APP 启动 VPN 时，系统会弹出 VPN 连接确认对话框，点击允许即可，后续不会再弹出
+- 切换 VPN 客户端后服务会自动重启以应用新选择
 - 服务开启后支持开机自启，无需每次手动启动
 - 建议在系统设置中将本 APP 加入电池优化白名单，避免被系统杀后台
