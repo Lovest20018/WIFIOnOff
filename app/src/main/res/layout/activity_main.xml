@@ -19,11 +19,11 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="WiFi 断开时自动开启 VPN\nWiFi 连接时自动关闭 VPN"
+        android:text="连接目标 WiFi 时关闭 VPN\n断开或连接其他 WiFi 时开启 VPN"
         android:textSize="14sp"
         android:textColor="#757575"
         android:gravity="center"
-        android:layout_marginBottom="40dp" />
+        android:layout_marginBottom="24dp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -37,6 +37,25 @@
         android:id="@+id/clientSpinner"
         android:layout_width="220dp"
         android:layout_height="48dp"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/target_ssid_label"
+        android:textSize="14sp"
+        android:textColor="#757575"
+        android:layout_marginBottom="6dp" />
+
+    <EditText
+        android:id="@+id/ssidEditText"
+        android:layout_width="220dp"
+        android:layout_height="48dp"
+        android:hint="@string/target_ssid_hint"
+        android:textSize="14sp"
+        android:inputType="text"
+        android:imeOptions="actionDone"
+        android:singleLine="true"
         android:layout_marginBottom="24dp" />
 
     <TextView

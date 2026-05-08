@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">VPN OnOff</string>
 
+    <string name="target_ssid_label">目标 WiFi 名称 (SSID)</string>
+    <string name="target_ssid_hint">留空则任意 WiFi 连接即关闭 VPN</string>
+
     <string-array name="vpn_clients">
         <item>Clash Meta (CMFA)</item>
         <item>Bettbox</item>

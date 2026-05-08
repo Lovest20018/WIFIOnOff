@@ -12,12 +12,16 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -35,9 +39,11 @@ public class MainActivity extends AppCompatActivity {
     private static final int SHIZUKU_REQUEST_CODE = 100;
 
     private static final String KEY_SELECTED_CLIENT = "selected_client";
+    private static final String KEY_TARGET_SSID = "target_ssid";
 
     private Button toggleButton;
     private Spinner clientSpinner;
+    private EditText ssidEditText;
     private TextView statusText;
     private TextView wifiStatusText;
     private TextView bgPopupStatusText;
@@ -93,12 +99,36 @@ public class MainActivity extends AppCompatActivity {
             public void onNothingSelected(AdapterView<?> parent) {}
         });
 
+        ssidEditText = findViewById(R.id.ssidEditText);
+        ssidEditText.setText(prefs2.getString(KEY_TARGET_SSID, ""));
+        ssidEditText.setOnEditorActionListener((v, actionId, event) -> {
+            ssidEditText.clearFocus();
+            return false;
+        });
+        ssidEditText.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                String ssid = ssidEditText.getText().toString().trim();
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putString(KEY_TARGET_SSID, ssid).apply();
+                if (serviceRunning) {
+                    stopMonitorService();
+                    startMonitorService();
+                }
+            }
+        });
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this,
                         new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
             }
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 2);
         }
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -284,16 +314,37 @@ public class MainActivity extends AppCompatActivity {
         // Use getAllNetworks instead of getActiveNetwork: when VPN is up,
         // active network is the VPN tunnel and WiFi would be misreported as disconnected.
         // This matches WifiMonitorService's detection logic.
-        boolean wifiConnected = false;
+        String connectedSsid = null;
         for (Network network : cm.getAllNetworks()) {
             NetworkCapabilities caps = cm.getNetworkCapabilities(network);
             if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                wifiConnected = true;
+                android.net.TransportInfo transportInfo = caps.getTransportInfo();
+                if (transportInfo instanceof WifiInfo) {
+                    String ssid = ((WifiInfo) transportInfo).getSSID();
+                    if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                        connectedSsid = ssid.replace("\"", "");
+                    }
+                }
+                if (connectedSsid == null) {
+                    connectedSsid = "未知";
+                }
                 break;
             }
         }
-        wifiStatusText.setText(wifiConnected
-                ? "WiFi: 已连接 | VPN: 应关闭"
-                : "WiFi: 未连接 | VPN: 应开启");
+
+        String targetSsid = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_TARGET_SSID, "").trim();
+
+        if (connectedSsid != null) {
+            if (targetSsid.isEmpty()) {
+                wifiStatusText.setText("WiFi: " + connectedSsid + " | VPN: 应关闭");
+            } else if (connectedSsid.equals(targetSsid)) {
+                wifiStatusText.setText("WiFi: " + connectedSsid + " (目标) | VPN: 应关闭");
+            } else {
+                wifiStatusText.setText("WiFi: " + connectedSsid + " (非目标) | VPN: 应开启");
+            }
+        } else {
+            wifiStatusText.setText("WiFi: 未连接 | VPN: 应开启");
+        }
     }
 }

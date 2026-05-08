@@ -11,6 +11,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
+import android.net.wifi.WifiInfo;
 import java.util.HashSet;
 import java.util.Set;
 import android.os.Handler;
@@ -54,6 +55,8 @@ public class WifiMonitorService extends Service {
     private HandlerThread handlerThread;
     private Handler handler;
     private final Set<Network> wifiNetworks = new HashSet<>();
+    private String targetSsid = "";
+    private String connectedSsid = null;
     private int selectedClient = CLIENT_CMFA;
     private String lastDesiredAction = null;
     private static final long DEBOUNCE_MS = 500;
@@ -65,6 +68,7 @@ public class WifiMonitorService extends Service {
 
         android.content.SharedPreferences prefs = getSharedPreferences("vpnonoff_prefs", MODE_PRIVATE);
         selectedClient = prefs.getInt("selected_client", CLIENT_CMFA);
+        targetSsid = prefs.getString("target_ssid", "").trim();
 
         handlerThread = new HandlerThread("WifiMonitorThread");
         handlerThread.start();
@@ -133,6 +137,15 @@ public class WifiMonitorService extends Service {
             public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                     wifiNetworks.add(network);
+                    if (!targetSsid.isEmpty()) {
+                        android.net.TransportInfo transportInfo = caps.getTransportInfo();
+                        if (transportInfo instanceof WifiInfo) {
+                            String ssid = ((WifiInfo) transportInfo).getSSID();
+                            if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                                connectedSsid = ssid.replace("\"", "");
+                            }
+                        }
+                    }
                 } else {
                     wifiNetworks.remove(network);
                 }
@@ -142,6 +155,9 @@ public class WifiMonitorService extends Service {
             @Override
             public void onLost(Network network) {
                 wifiNetworks.remove(network);
+                if (wifiNetworks.isEmpty()) {
+                    connectedSsid = null;
+                }
                 scheduleAction();
             }
         };
@@ -158,25 +174,44 @@ public class WifiMonitorService extends Service {
                 NetworkCapabilities caps = connectivityManager.getNetworkCapabilities(network);
                 if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                     wifiNetworks.add(network);
+                    if (!targetSsid.isEmpty() && connectedSsid == null) {
+                        android.net.TransportInfo transportInfo = caps.getTransportInfo();
+                        if (transportInfo instanceof WifiInfo) {
+                            String ssid = ((WifiInfo) transportInfo).getSSID();
+                            if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                                connectedSsid = ssid.replace("\"", "");
+                            }
+                        }
+                    }
                 }
             }
-            Log.i(TAG, "Initial WiFi state: " + (wifiNetworks.isEmpty() ? "disconnected" : "connected"));
-            if (wifiNetworks.isEmpty()) {
-                // No WiFi — start VPN immediately
+            boolean shouldStartVpn = shouldStartVpn();
+            Log.i(TAG, "Initial WiFi state: " + (wifiNetworks.isEmpty() ? "disconnected" : "connected")
+                    + ", SSID: " + connectedSsid + ", target: " + targetSsid);
+            if (shouldStartVpn) {
                 executeAction(ACTION_START);
             } else {
-                // WiFi connected — just record state, don't send redundant STOP
+                // Target WiFi connected — just record state, don't send redundant STOP
                 lastDesiredAction = ACTION_STOP;
-                updateNotification("WiFi 已连接 - VPN 关闭");
+                updateNotification("WiFi " + connectedSsid + " 已连接 - VPN 关闭");
             }
         });
+    }
+
+    private boolean shouldStartVpn() {
+        if (targetSsid.isEmpty()) {
+            // No target SSID: any WiFi connected → VPN off
+            return wifiNetworks.isEmpty();
+        }
+        // Target SSID set: only turn off VPN when connected to that specific SSID
+        return !targetSsid.equals(connectedSsid);
     }
 
     private void scheduleAction() {
         if (pendingAction != null) {
             handler.removeCallbacks(pendingAction);
         }
-        pendingAction = () -> executeAction(wifiNetworks.isEmpty() ? ACTION_START : ACTION_STOP);
+        pendingAction = () -> executeAction(shouldStartVpn() ? ACTION_START : ACTION_STOP);
         handler.postDelayed(pendingAction, DEBOUNCE_MS);
     }
 
@@ -186,13 +221,22 @@ public class WifiMonitorService extends Service {
             return;
         }
 
-        boolean wifiConnected = !wifiNetworks.isEmpty();
-        Log.i(TAG, wifiConnected ? "WiFi connected" : "WiFi disconnected");
+        boolean startVpn = shouldStartVpn();
+        Log.i(TAG, "WiFi SSID: " + connectedSsid + ", target: " + targetSsid
+                + ", action: " + (startVpn ? "START" : "STOP"));
 
         if (controlClash(action)) {
             lastDesiredAction = action;
-            updateNotification(wifiConnected ? "WiFi 已连接 - VPN 关闭" : "WiFi 未连接 - VPN 开启");
-            sendStatusBroadcast(wifiConnected);
+            String notification;
+            if (startVpn) {
+                notification = connectedSsid != null
+                        ? "WiFi " + connectedSsid + " (非目标) - VPN 开启"
+                        : "WiFi 未连接 - VPN 开启";
+            } else {
+                notification = "WiFi " + connectedSsid + " 已连接 - VPN 关闭";
+            }
+            updateNotification(notification);
+            sendStatusBroadcast(!startVpn);
         }
     }
 
