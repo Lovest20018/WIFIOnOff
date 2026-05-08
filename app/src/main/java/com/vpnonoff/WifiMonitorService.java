@@ -301,28 +301,19 @@ public class WifiMonitorService extends Service {
                 return false;
             }
 
-            String cmd;
             if (ACTION_STOP.equals(action)) {
-                cmd = "am force-stop " + CLASH_PACKAGE;
-            } else {
-                cmd = "am start"
-                        + " -a " + action
-                        + " -n " + CLASH_PACKAGE + "/" + CLASH_CONTROL
-                        + " --activity-multiple-task"
-                        + " --activity-no-history"
-                        + " --activity-no-animation"
-                        + " --activity-exclude-from-recents";
+                return stopVpnWithRetry(CLASH_PACKAGE);
             }
 
-            Log.i(TAG, "Executing via Shizuku: " + cmd);
-            Method newProcess = Shizuku.class.getDeclaredMethod(
-                    "newProcess", String[].class, String[].class, String.class);
-            newProcess.setAccessible(true);
-            Process process = (Process) newProcess.invoke(null,
-                    new String[]{"sh", "-c", cmd}, null, null);
-            int exitCode = process.waitFor();
-            Log.i(TAG, "Shizuku command exit code: " + exitCode);
-            return exitCode == 0;
+            String cmd = "am start"
+                    + " -a " + action
+                    + " -n " + CLASH_PACKAGE + "/" + CLASH_CONTROL
+                    + " --activity-multiple-task"
+                    + " --activity-no-history"
+                    + " --activity-no-animation"
+                    + " --activity-exclude-from-recents";
+
+            return executeShizukuCmd(cmd);
         } catch (Exception e) {
             Log.e(TAG, "Shizuku execution failed: " + e.getMessage());
             return false;
@@ -330,50 +321,44 @@ public class WifiMonitorService extends Service {
     }
 
     private boolean controlBettboxViaShizuku(String action) {
-        String cmd;
         if (ACTION_STOP.equals(action)) {
-            cmd = "am force-stop " + BETTBOX_PACKAGE;
-        } else {
-            cmd = "am start"
-                    + " -a com.appshub.bettbox.action.START"
-                    + " -n " + BETTBOX_PACKAGE + "/" + BETTBOX_ACTIVITY
-                    + " --activity-multiple-task"
-                    + " --activity-no-history"
-                    + " --activity-no-animation"
-                    + " --activity-exclude-from-recents";
+            return stopVpnWithRetry(BETTBOX_PACKAGE);
         }
-        return executeShizukuCommand(cmd);
+        String cmd = "am start"
+                + " -a com.appshub.bettbox.action.START"
+                + " -n " + BETTBOX_PACKAGE + "/" + BETTBOX_ACTIVITY
+                + " --activity-multiple-task"
+                + " --activity-no-history"
+                + " --activity-no-animation"
+                + " --activity-exclude-from-recents";
+        return executeShizukuCmd(cmd);
     }
 
     private boolean controlFlClashViaShizuku(String action) {
-        String cmd;
         if (ACTION_STOP.equals(action)) {
-            cmd = "am force-stop " + FLCLASH_PACKAGE;
-        } else {
-            cmd = "am start"
-                    + " -a com.follow.clash.action.START"
-                    + " -n " + FLCLASH_PACKAGE + "/.TempActivity"
-                    + " --activity-multiple-task"
-                    + " --activity-no-history"
-                    + " --activity-no-animation"
-                    + " --activity-exclude-from-recents";
+            return stopVpnWithRetry(FLCLASH_PACKAGE);
         }
-        return executeShizukuCommand(cmd);
+        String cmd = "am start"
+                + " -a com.follow.clash.action.START"
+                + " -n " + FLCLASH_PACKAGE + "/.TempActivity"
+                + " --activity-multiple-task"
+                + " --activity-no-history"
+                + " --activity-no-animation"
+                + " --activity-exclude-from-recents";
+        return executeShizukuCmd(cmd);
     }
 
     private boolean controlSurfboardViaShizuku(String action) {
-        String cmd;
         if (ACTION_STOP.equals(action)) {
-            cmd = "am force-stop " + SURFBOARD_PACKAGE;
-        } else {
-            // Restrict to Surfboard's package so other apps registering the
-            // surfboard:// scheme cannot intercept the start intent.
-            cmd = "am start -a android.intent.action.VIEW -d surfboard:///start -p " + SURFBOARD_PACKAGE;
+            return stopVpnWithRetry(SURFBOARD_PACKAGE);
         }
-        return executeShizukuCommand(cmd);
+        // Restrict to Surfboard's package so other apps registering the
+        // surfboard:// scheme cannot intercept the start intent.
+        String cmd = "am start -a android.intent.action.VIEW -d surfboard:///start -p " + SURFBOARD_PACKAGE;
+        return executeShizukuCmd(cmd);
     }
 
-    private boolean executeShizukuCommand(String cmd) {
+    private boolean executeShizukuCmd(String cmd) {
         try {
             if (!Shizuku.pingBinder()) {
                 Log.w(TAG, "Shizuku not available");
@@ -396,6 +381,61 @@ public class WifiMonitorService extends Service {
             return exitCode == 0;
         } catch (Exception e) {
             Log.e(TAG, "Shizuku execution failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Stop VPN with retry and verification.
+     * Samsung One UI 8.0 may report am force-stop success (exit 0) but leave VPN running.
+     * We verify the process is actually dead, retrying with escalating methods if needed.
+     */
+    private boolean stopVpnWithRetry(String packageName) {
+        String[] stopMethods = {
+                "am force-stop " + packageName,
+                "am force-stop " + packageName,
+                "kill -9 $(pidof " + packageName + ") 2>/dev/null; am force-stop " + packageName
+        };
+
+        for (int i = 0; i < stopMethods.length; i++) {
+            String cmd = stopMethods[i];
+            Log.i(TAG, "Stop attempt " + (i + 1) + "/" + stopMethods.length + ": " + cmd);
+            executeShizukuCmd(cmd);
+
+            // Wait a bit then verify
+            try { Thread.sleep(800); } catch (InterruptedException ignored) {}
+
+            if (!isVpnProcessRunning(packageName)) {
+                Log.i(TAG, "VPN process confirmed stopped after attempt " + (i + 1));
+                return true;
+            }
+            Log.w(TAG, "VPN process still running after attempt " + (i + 1));
+        }
+
+        Log.e(TAG, "Failed to stop VPN after " + stopMethods.length + " attempts");
+        return false;
+    }
+
+    private boolean isVpnProcessRunning(String packageName) {
+        try {
+            Method newProcess = Shizuku.class.getDeclaredMethod(
+                    "newProcess", String[].class, String[].class, String.class);
+            newProcess.setAccessible(true);
+            Process process = (Process) newProcess.invoke(null,
+                    new String[]{"sh", "-c", "pidof " + packageName}, null, null);
+            java.io.InputStream is = process.getInputStream();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            int b;
+            while ((b = is.read()) != -1) {
+                baos.write(b);
+            }
+            process.waitFor();
+            String output = baos.toString().trim();
+            boolean running = !output.isEmpty();
+            Log.i(TAG, "isVpnProcessRunning(" + packageName + "): " + running + " pid=" + output);
+            return running;
+        } catch (Exception e) {
+            Log.w(TAG, "isVpnProcessRunning check failed: " + e.getMessage());
             return false;
         }
     }
