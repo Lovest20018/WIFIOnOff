@@ -12,6 +12,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import java.util.HashSet;
 import java.util.Set;
 import android.os.Handler;
@@ -51,6 +52,7 @@ public class WifiMonitorService extends Service {
     private static final String SURFBOARD_PACKAGE = "com.getsurfboard";
 
     private ConnectivityManager connectivityManager;
+    private WifiManager wifiManager;
     private ConnectivityManager.NetworkCallback networkCallback;
     private HandlerThread handlerThread;
     private Handler handler;
@@ -73,6 +75,8 @@ public class WifiMonitorService extends Service {
         handlerThread = new HandlerThread("WifiMonitorThread");
         handlerThread.start();
         handler = new Handler(handlerThread.getLooper());
+
+        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
 
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification("监听中..."));
@@ -137,14 +141,15 @@ public class WifiMonitorService extends Service {
             public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                     wifiNetworks.add(network);
-                    if (!targetSsid.isEmpty()) {
-                        android.net.TransportInfo transportInfo = caps.getTransportInfo();
-                        if (transportInfo instanceof WifiInfo) {
-                            String ssid = ((WifiInfo) transportInfo).getSSID();
-                            if (ssid != null && !ssid.equals("<unknown ssid>")) {
-                                connectedSsid = ssid.replace("\"", "");
-                            }
+                    android.net.TransportInfo transportInfo = caps.getTransportInfo();
+                    if (transportInfo instanceof WifiInfo) {
+                        String ssid = ((WifiInfo) transportInfo).getSSID();
+                        if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                            connectedSsid = ssid.replace("\"", "");
                         }
+                    }
+                    if (connectedSsid == null) {
+                        connectedSsid = getSsidViaWifiManager();
                     }
                 } else {
                     wifiNetworks.remove(network);
@@ -174,7 +179,7 @@ public class WifiMonitorService extends Service {
                 NetworkCapabilities caps = connectivityManager.getNetworkCapabilities(network);
                 if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                     wifiNetworks.add(network);
-                    if (!targetSsid.isEmpty() && connectedSsid == null) {
+                    if (connectedSsid == null) {
                         android.net.TransportInfo transportInfo = caps.getTransportInfo();
                         if (transportInfo instanceof WifiInfo) {
                             String ssid = ((WifiInfo) transportInfo).getSSID();
@@ -184,6 +189,9 @@ public class WifiMonitorService extends Service {
                         }
                     }
                 }
+            }
+            if (connectedSsid == null && !wifiNetworks.isEmpty()) {
+                connectedSsid = getSsidViaWifiManager();
             }
             boolean shouldStartVpn = shouldStartVpn();
             Log.i(TAG, "Initial WiFi state: " + (wifiNetworks.isEmpty() ? "disconnected" : "connected")
@@ -196,6 +204,23 @@ public class WifiMonitorService extends Service {
                 updateNotification("WiFi " + connectedSsid + " 已连接 - VPN 关闭");
             }
         });
+    }
+
+    private String getSsidViaWifiManager() {
+        try {
+            if (wifiManager != null) {
+                WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+                if (wifiInfo != null) {
+                    String ssid = wifiInfo.getSSID();
+                    if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                        return ssid.replace("\"", "");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "WifiManager fallback failed: " + e.getMessage());
+        }
+        return null;
     }
 
     private boolean shouldStartVpn() {

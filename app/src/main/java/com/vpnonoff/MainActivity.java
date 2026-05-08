@@ -13,15 +13,13 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -43,7 +41,10 @@ public class MainActivity extends AppCompatActivity {
 
     private Button toggleButton;
     private Spinner clientSpinner;
-    private EditText ssidEditText;
+    private TextView currentSsidText;
+    private TextView targetSsidText;
+    private Button setTargetButton;
+    private Button clearTargetButton;
     private TextView statusText;
     private TextView wifiStatusText;
     private TextView bgPopupStatusText;
@@ -69,6 +70,10 @@ public class MainActivity extends AppCompatActivity {
         wifiStatusText = findViewById(R.id.wifiStatusText);
         bgPopupStatusText = findViewById(R.id.bgPopupStatusText);
         shizukuStatusText = findViewById(R.id.shizukuStatusText);
+        currentSsidText = findViewById(R.id.currentSsidText);
+        targetSsidText = findViewById(R.id.targetSsidText);
+        setTargetButton = findViewById(R.id.setTargetButton);
+        clearTargetButton = findViewById(R.id.clearTargetButton);
 
         Shizuku.addRequestPermissionResultListener(shizukuPermListener);
 
@@ -99,21 +104,26 @@ public class MainActivity extends AppCompatActivity {
             public void onNothingSelected(AdapterView<?> parent) {}
         });
 
-        ssidEditText = findViewById(R.id.ssidEditText);
-        ssidEditText.setText(prefs2.getString(KEY_TARGET_SSID, ""));
-        ssidEditText.setOnEditorActionListener((v, actionId, event) -> {
-            ssidEditText.clearFocus();
-            return false;
-        });
-        ssidEditText.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                String ssid = ssidEditText.getText().toString().trim();
+        setTargetButton.setOnClickListener(v -> {
+            String currentSsid = getCurrentSsid();
+            if (currentSsid != null) {
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-                        .putString(KEY_TARGET_SSID, ssid).apply();
+                        .putString(KEY_TARGET_SSID, currentSsid).apply();
+                updateTargetSsidDisplay();
                 if (serviceRunning) {
                     stopMonitorService();
                     startMonitorService();
                 }
+            }
+        });
+
+        clearTargetButton.setOnClickListener(v -> {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putString(KEY_TARGET_SSID, "").apply();
+            updateTargetSsidDisplay();
+            if (serviceRunning) {
+                stopMonitorService();
+                startMonitorService();
             }
         });
 
@@ -140,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
 
         updateUI();
         updateWifiStatus();
+        updateTargetSsidDisplay();
         checkPermissions();
 
         toggleButton.setOnClickListener(v -> {
@@ -174,6 +185,7 @@ public class MainActivity extends AppCompatActivity {
             registerReceiver(statusReceiver, filter);
         }
         updateWifiStatus();
+        updateTargetSsidDisplay();
         updateUI();
         checkPermissions();
     }
@@ -310,26 +322,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateWifiStatus() {
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        // Use getAllNetworks instead of getActiveNetwork: when VPN is up,
-        // active network is the VPN tunnel and WiFi would be misreported as disconnected.
-        // This matches WifiMonitorService's detection logic.
-        String connectedSsid = null;
-        for (Network network : cm.getAllNetworks()) {
-            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                android.net.TransportInfo transportInfo = caps.getTransportInfo();
-                if (transportInfo instanceof WifiInfo) {
-                    String ssid = ((WifiInfo) transportInfo).getSSID();
-                    if (ssid != null && !ssid.equals("<unknown ssid>")) {
-                        connectedSsid = ssid.replace("\"", "");
-                    }
-                }
-                if (connectedSsid == null) {
-                    connectedSsid = "未知";
-                }
-                break;
-            }
+        String connectedSsid = getCurrentSsid();
+
+        if (connectedSsid != null) {
+            currentSsidText.setText(connectedSsid);
+            currentSsidText.setTextColor(0xFF4CAF50);
+        } else {
+            currentSsidText.setText(R.string.wifi_not_connected);
+            currentSsidText.setTextColor(0xFFF44336);
         }
 
         String targetSsid = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -337,14 +337,62 @@ public class MainActivity extends AppCompatActivity {
 
         if (connectedSsid != null) {
             if (targetSsid.isEmpty()) {
-                wifiStatusText.setText("WiFi: " + connectedSsid + " | VPN: 应关闭");
+                wifiStatusText.setText("VPN: 应关闭 (任意WiFi)");
             } else if (connectedSsid.equals(targetSsid)) {
-                wifiStatusText.setText("WiFi: " + connectedSsid + " (目标) | VPN: 应关闭");
+                wifiStatusText.setText("VPN: 应关闭 (目标WiFi)");
             } else {
-                wifiStatusText.setText("WiFi: " + connectedSsid + " (非目标) | VPN: 应开启");
+                wifiStatusText.setText("VPN: 应开启 (非目标WiFi)");
             }
         } else {
-            wifiStatusText.setText("WiFi: 未连接 | VPN: 应开启");
+            wifiStatusText.setText("VPN: 应开启 (未连接WiFi)");
         }
+    }
+
+    private void updateTargetSsidDisplay() {
+        String targetSsid = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_TARGET_SSID, "").trim();
+        if (targetSsid.isEmpty()) {
+            targetSsidText.setText(R.string.no_target);
+            targetSsidText.setTextColor(0xFF757575);
+        } else {
+            targetSsidText.setText(targetSsid);
+            targetSsidText.setTextColor(0xFF1976D2);
+        }
+    }
+
+    private String getCurrentSsid() {
+        // Try ConnectivityManager + TransportInfo first
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        for (Network network : cm.getAllNetworks()) {
+            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                android.net.TransportInfo transportInfo = caps.getTransportInfo();
+                if (transportInfo instanceof WifiInfo) {
+                    String ssid = ((WifiInfo) transportInfo).getSSID();
+                    if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                        return ssid.replace("\"", "");
+                    }
+                }
+                break;
+            }
+        }
+
+        // Fallback: WifiManager
+        try {
+            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+                if (wifiInfo != null) {
+                    String ssid = wifiInfo.getSSID();
+                    if (ssid != null && !ssid.equals("<unknown ssid>")) {
+                        return ssid.replace("\"", "");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+
+        return null;
     }
 }
